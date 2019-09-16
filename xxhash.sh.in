@@ -86,133 +86,277 @@
 # This is an m4 script. This inlines everything.
 # Note that whitespace is left out in some loops as it slows down bash.
 
-# Good practice.
-set -euo pipefail
+# For debugging.
+# set -u
 
 # Bash uses signed arithmetic, so shifting right is wonk.
 define(ushr_impl,(($1>>($2))&$3))
 define(ushr,ushr_impl($1,$2,(~(((1<<63)>>($2))<<1))))
 
 # Bash reads files in big endian.
-define(swap,$(( \
-    (((tmp=$1)<<56)&(255<<56))|\
-    ((tmp<<40)&(255<<48))|\
-    ((tmp<<24)&(255<<40))|\
-    ((tmp<<8)&(255<<32))|\
-    ((ushr(tmp,8))&(255<<24))|\
-    ((ushr(tmp,24))&(255<<16))|\
-    ((ushr(tmp,40))&(255<<8))|\
-    ((ushr(tmp,56))&255)\
-)) \
-)
-define(swap32,$(( \
-( ( (tmp=$1) << 24) & 0xff000000 ) | \
-            ( (tmp <<  8) & 0x00ff0000 ) | \
-            ( (ushr(tmp, 8)) & 0x0000ff00 ) | \
-            ( (ushr(tmp, 24)) & 0x000000ff ) \
-   )) \
-)
+define(swap, (((tmp=$1)<<56)&(255<<56))|((tmp<<40)&(255<<48))|((tmp<<24)&(255<<40))|((tmp<<8)&(255<<32))|((ushr(tmp,8))&(255<<24))|((ushr(tmp,24))&(255<<16))|((ushr(tmp,40))&(255<<8))|((ushr(tmp,56))&255))
+define(swap32, $(((((tmp=$1)<<24)&0xff000000)|((tmp<<8)&0x00ff0000)|((ushr(tmp, 8))&0x0000ff00)|((ushr(tmp, 24))&0x000000ff))))
 
 
 define(XXH64_mergeRound,
     zero=0
     XXH64_round(zero, $2)
-    $1=$(( (($1 ^ zero) * PRIME64_1) + PRIME64_4 ))
+    $1=$(((($1^zero)*PRIME64_1)+PRIME64_4))
 )
 define(XXH_rotl64,(($1<<$2)|(ushr($1,(64-$2)))))
 define(XXH_rotl32,(((($1)<<($2))|(($1>>(32-$2)))))&0xFFFFFFFF)
 
 dnl calculate the right shift magic beforehand
-define(XXH64_round,(($1+=(($2)*PRIME64_2)));$1=$(((($1<<31)|ushr_impl($1,33,0x7fffffff) )*PRIME64_1)))
-define(XXH64_avalanche,
-    (( h64 ^= ushr(h64, 33) ))
-    (( h64 *= PRIME64_2 ))
-    (( h64 ^= ushr(h64, 29) ))
-    (( h64 *= PRIME64_3 ))
-    (( h64 ^= ushr(h64, 32) ))
+define(XXH64_round,
+    : $(($1+=(($2)*PRIME64_2)))
+    $1=$(((($1<<31)|ushr_impl($1,33,0x7fffffff) )*PRIME64_1))
 )
+define(XXH64_avalanche,
+    : $((h64^=ushr(h64, 33)))
+    : $((h64*=PRIME64_2))
+    : $((h64^=ushr(h64, 29)))
+    : $((h64*=PRIME64_3))
+    : $((h64^=ushr(h64, 32)))
+)
+
+buffer=
+chunk8_1=
+chunk8_2=
+chunk8_3=
+chunk8_4=
+chunk4_1=
+chunk1_1=
+chunk1_2=
+chunk1_3=
+
+rethrow() { return $((!${1})); }
+
+try_read_32B_in_4_chunks() {
+    buffer= chunk8_1= chunk8_2= chunk8_3= chunk8_4=
+    while read -r byte
+    do
+        buffer="${buffer}${byte}"
+        if rethrow $((${#buffer}==16))
+        then
+            chunk8_1="${buffer}"
+            buffer=
+            while read -r byte
+            do
+                buffer="${buffer}${byte}"
+                if rethrow $((${#buffer}==16))
+                then
+                    chunk8_2="${buffer}"
+                    buffer=
+                    while read -r byte
+                    do
+                        buffer="${buffer}${byte}"
+                        if rethrow $((${#buffer}==16))
+                        then
+                            chunk8_3="${buffer}"
+                            buffer=
+                            while read -r byte
+                            do
+                                buffer="${buffer}${byte}"
+                                if rethrow $((${#buffer}==16))
+                                then
+                                    chunk8_4="${buffer}"
+                                    buffer=
+                                    return 0
+                                fi
+                            done
+                            return 1
+                        fi
+                    done
+                    return 1
+                fi
+            done
+            return 1
+        fi
+    done
+    return 1
+}
+
+# try_read_8B() {
+#     while read -r byte
+#     do
+#         buffer="${buffer}${byte}"
+#         if rethrow $((${#buffer}==16))
+#         then
+#             chunk8="${buffer}"
+#             buffer=
+#             return 0
+#         fi
+#     done
+#     return 1
+# }
+#
+# try_read_4B() {
+#     while read -r byte
+#     do
+#         buffer="${buffer}${byte}"
+#         if rethrow $((${#buffer}==8))
+#         then
+#             chunk4="${buffer}"
+#             buffer=
+#             return 0
+#         fi
+#     done
+#     return 1
+# }
+#
+# try_read_1B() {
+#     while read -r byte
+#     do
+#         buffer="${buffer}${byte}"
+#         if rethrow $((${#buffer}==2))
+#         then
+#             chunk1="${buffer}"
+#             buffer=
+#             return 0
+#         fi
+#     done
+#     return 1
+# }
+#
+# try_read_chunked() {
+#     local len=$1 n=$2
+#     local remaining=$((len*n))
+#
+#     while rethrow ${remaining} && read -r byte
+#     do
+#
+#         buffer="${buffer}${byte}"
+#         : $((remaining-=1))
+#     done
+#
+#     return ${remaining}
+# }
+#
+# try_read() {
+#     buffer=
+#     local c=$1
+#     while rethrow ${c} && read -r byte
+#     do
+#         buffer="${buffer}${byte}"
+#         : $((c-=1))
+#     done
+#
+#     return ${c}
+# }
+
+
+## Global constants
+PRIME64_1=-7046029288634856825 # 0x9E3779B185EBCA87
+PRIME64_2=-4417276706812531889 # 0xC2B2AE3D27D4EB4F
+PRIME64_3=1609587929392839161  # 0x165667B19E3779F9
+PRIME64_4=-8796714831421723037 # 0x85EBCA77C2B2AE63
+PRIME64_5=2870177450012600261  # 0x27D4EB2F165667C5
+: $((PRIME64_1=PRIME64_1))
+: $((PRIME64_2=PRIME64_2))
+: $((PRIME64_3=PRIME64_3))
+: $((PRIME64_4=PRIME64_4))
+: $((PRIME64_5=PRIME64_5))
+: $((PRIME64_1_plus_2=PRIME64_1+PRIME64_2))
+readonly PRIME64_1 PRIME64_2 PRIME64_3 PRIME64_4 PRIME64_5 PRIME64_1_plus_2
+
 
 # uint64_t XXH64(text_in_hex, seed = 0)
 XXH64()
 {
     dnl Performance is multiplied by 8-10x if we switch to C locale.
-    local OLD_LC_ALL="${LC_ALL:-}"
-    export LC_ALL="C"
+    local LC_ALL="C"
 
-    local -i PRIME64_1=0x9E3779B185EBCA87
-    local -i PRIME64_2=0xC2B2AE3D27D4EB4F
-    local -i PRIME64_3=0x165667B19E3779F9
-    local -i PRIME64_4=0x85EBCA77C2B2AE63
-    local -i PRIME64_5=0x27D4EB2F165667C5
-
-    local -i seed=0
-    if [ $# -ge 2 ]; then
+    # TODO:
+    local seed=0
+    if rethrow $(($#>=2))
+    then
         seed=$2
     fi
-    local inp="                                                                 "
-    local -i tmp=0
-    local -i zero=0
-    local -i h64=0
-    local input="$1"
-    local -i len=$(( ${#input} / 2 ))
-    local -i remaining=$len
-    local -i offset=0
-    local -i bEnd=$(( ${#input} - 64 ))
-    if [ $remaining -ge 32 ]; then
-        local -i v1=$(( seed + PRIME64_1 + PRIME64_2 ))
-        local -i v2=$(( seed + PRIME64_2 ))
-        local -i v3=$(( seed ))
-        local -i v4=$(( seed - PRIME64_1 ))
 
-        dnl tight loop, no whitespace
-        while [ $offset -le $bEnd ]; do
-            inp="${input:$offset:64}"
-            XXH64_round(v1, swap(0x${inp:0:16}))
-            XXH64_round(v2,swap(0x${inp:16:16}))
-            XXH64_round(v3,swap(0x${inp:32:16}))
-            XXH64_round(v4,swap(0x${inp:48:16}))
-            ((offset+=64))
-        done
+    local tmp=0
+    local zero=0
+    local h64=0
 
-        h64=$(( (XXH_rotl64(v1, 1)) + (XXH_rotl64(v2, 7)) + (XXH_rotl64(v3, 12)) + (XXH_rotl64(v4, 18)) ))
+    ## BEGIN: XXH64_reset
+    local v1 v2 v3 v4
+    : $((v1=seed+PRIME64_1_plus_2))
+    : $((v2=seed+PRIME64_2))
+    : $((v3=seed))
+    : $((v4=seed-PRIME64_1))
+    ## END: XXH64_reset
+
+    local total_len_in_bytes=0
+
+    ## BEGIN: XXH64_update
+    while try_read_32B_in_4_chunks
+    do
+        XXH64_round(v1, swap(0x${chunk8_1}))
+        XXH64_round(v2, swap(0x${chunk8_2}))
+        XXH64_round(v3, swap(0x${chunk8_3}))
+        XXH64_round(v4, swap(0x${chunk8_4}))
+        : $((total_len_in_bytes+=32))
+    done
+    : $((total_len_in_bytes+=(${#chunk8_1}+${#chunk8_2}+${#chunk8_3}+${#buffer})/2))
+    ## END: XXH64_update
+
+    ## BEGIN: XXH64_digest
+    local h64
+    if rethrow $((total_len_in_bytes>=32))
+    then
+        : $((h64=(XXH_rotl64(v1, 1))+(XXH_rotl64(v2, 7))+(XXH_rotl64(v3, 12))+(XXH_rotl64(v4, 18))))
 
         XXH64_mergeRound(h64, v1)
         XXH64_mergeRound(h64, v2)
         XXH64_mergeRound(h64, v3)
         XXH64_mergeRound(h64, v4)
     else
-        h64=$((seed + PRIME64_5));
+        : $((h64=v3+PRIME64_5))
     fi
-    remaining=$(( ${#input} - offset ))
-    ((h64 += len))
-    while [ $remaining -ge 16 ]; do
-	local -i k1=0
-        XXH64_round(k1, swap(0x${input:$offset:16}))
-        (( offset += 16 ))
-        h64=$(( h64 ^ k1 ));
-        h64=$(( (XXH_rotl64(h64, 27) * PRIME64_1) + PRIME64_4 ));
-        ((remaining -= 16 ));
-    done
-    if [ $remaining -ge 8 ]; then
-        (( h64 ^= (swap32(0x00000000${input:$offset:8}) * PRIME64_1) ))
-        (( offset += 8 ))
-        h64=$(( (XXH_rotl64(h64, 23) * PRIME64_2) + PRIME64_3 ))
-        ((remaining-=8))
-    fi
-    while [ $remaining -gt 0 ]; do
-        (( h64 ^= (0x${input:$offset:2} * PRIME64_5) ))
-        (( offset += 2 ))
-        h64=$(( XXH_rotl64(h64, 11) * PRIME64_1 ))
-        ((remaining-=2))
-    done
-    XXH64_avalanche
+    : $((h64+=total_len_in_bytes))
+    ## END: XXH64_digest
 
-    # Reset LC_ALL.
-    if [ -n "$OLD_LC_ALL"]; then
-        export LC_ALL="$OLD_LC_ALL"
-    else
-        unset LC_ALL
+    ## BEGIN: XXH64_finalize
+    if rethrow $((${#chunk8_1}))
+    then
+        local k1=0
+        XXH64_round(k1, swap(0x${chunk8_1}))
+        : $((h64^=k1))
+        : $((h64=(XXH_rotl64(h64, 27)*PRIME64_1)+PRIME64_4))
     fi
+    if rethrow $((${#chunk8_2}))
+    then
+        local k1=0
+        XXH64_round(k1, swap(0x${chunk8_2}))
+        : $((h64^=k1))
+        : $((h64=(XXH_rotl64(h64, 27)*PRIME64_1)+PRIME64_4))
+    fi
+    if rethrow $((${#chunk8_3}))
+    then
+        local k1=0
+        XXH64_round(k1, swap(0x${chunk8_3}))
+        : $((h64^=k1))
+        : $((h64=(XXH_rotl64(h64, 27)*PRIME64_1)+PRIME64_4))
+    fi
+
+    if rethrow $((${#buffer}>=8))
+    then
+        local chunk4_1="$(printf "%c%c%c%c%c%c%c%c" "${buffer}" "${buffer#?}" "${buffer#??}" "${buffer#???}" "${buffer#????}" "${buffer#?????}" "${buffer#??????}" "${buffer#???????}")"
+        : $((h64^=(swap32(0x00000000${chunk4_1})*PRIME64_1)))
+        : $((h64=(XXH_rotl64(h64, 23)*PRIME64_2)+PRIME64_3))
+        buffer="${buffer#????????}"  # strip first 8 chars
+    fi
+
+    while rethrow $((${#buffer}>0))
+    do
+        local chunk1_1="$(printf "%c%c" "${buffer}" "${buffer#?}")"
+        : $((h64^=(0x${chunk1_1}*PRIME64_5)))
+        : $((h64=XXH_rotl64(h64, 11)*PRIME64_1))
+        buffer="${buffer#??}"  # strip first 2 chars
+    done
+
+    XXH64_avalanche
+    ## END: XXH64_finalize
+
     printf "%016x" $h64
 }
 
@@ -235,29 +379,29 @@ XXH32()
     local OLD_LC_ALL="${LC_ALL:-}"
     export LC_ALL="C"
 
-    local -i PRIME32_1=2654435761
-    local -i PRIME32_2=2246822519
-    local -i PRIME32_3=3266489917
-    local -i PRIME32_4=668265263
-    local -i PRIME32_5=374761393
+    local PRIME32_1=2654435761
+    local PRIME32_2=2246822519
+    local PRIME32_3=3266489917
+    local PRIME32_4=668265263
+    local PRIME32_5=374761393
 
-    local -i seed=0
+    local seed=0
     if [ $# -ge 2 ]; then
         seed=$2
     fi
-    local -i tmp=0
-    local -i zero=0
-    local -i h32=0
+    local tmp=0
+    local zero=0
+    local h32=0
     local input="$1"
-    local -i len=$(( ${#input} / 2 ))
-    local -i remaining=$len
-    local -i offset=0
-    local -i bEnd=$(( ${#input} - 32 ))
+    local len=$(( ${#input} / 2 ))
+    local remaining=$len
+    local offset=0
+    local bEnd=$(( ${#input} - 32 ))
     if [ $remaining -ge 16 ]; then
-        local -i v1=$(( ( ( (seed + PRIME32_1) & 0xFFFFFFFF) + PRIME32_2) & 0xFFFFFFFF ))
-        local -i v2=$(( (seed + PRIME32_2) & 0xFFFFFFFF ))
-        local -i v3=$(( seed ))
-        local -i v4=$(( (seed - PRIME32_1) & 0xFFFFFFFF ))
+        local v1=$(( ( ( (seed + PRIME32_1) & 0xFFFFFFFF) + PRIME32_2) & 0xFFFFFFFF ))
+        local v2=$(( (seed + PRIME32_2) & 0xFFFFFFFF ))
+        local v3=$(( seed ))
+        local v4=$(( (seed - PRIME32_1) & 0xFFFFFFFF ))
 
         while [ $offset -le $bEnd ]; do
             local inp="${input:$offset:32}"
