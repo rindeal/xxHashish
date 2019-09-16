@@ -1,6 +1,8 @@
-## xxHashis
+## xxHashish
 
-```
+<https://gitlab.com/rindeal/xxHashish>
+
+```plain
 SPDX-License-Identifier: GPL-3.0-only
 ```
 
@@ -686,12 +688,15 @@ please read <https://www.gnu.org/licenses/why-not-lgpl.html>.
 
 ## xxbash
 
-```
+<https://github.com/easyaspi314/xxbash>
+
+```plain
 SPDX-License-Identifier: BSD-2-Clause
 ```
 
 ---
 
+```plain
 BSD 2-Clause License
 
 Copyright (c) 2012-2016, Yann Collet
@@ -718,17 +723,21 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
 
 ---
 
 ## xxHash
 
-```
+<https://github.com/Cyan4973/xxHash>
+
+```plain
 SPDX-License-Identifier: BSD-2-Clause
 ```
 
 ---
 
+```plain
 xxHash Library
 Copyright (c) 2012-2014, Yann Collet
 All rights reserved.
@@ -753,5 +762,6 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
 
 ---
