@@ -1,0 +1,291 @@
+#!/usr/bin/env m4
+##
+# SPDX-FileCopyrightText: Copyright  2019  Jan Chren (rindeal)
+#
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 3 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+##
+
+# based upon xxbash, which is:
+##
+#  xxHash - Fast Hash algorithm
+#  Copyright (C) 2012-2016, Yann Collet
+#  Copyright (C) 2019, easyaspi314
+#
+#  BSD 2-Clause License (http://www.opensource.org/licenses/bsd-license.php)
+#
+#  Redistribution and use in source and binary forms, with or without
+#  modification, are permitted provided that the following conditions are
+#  met:
+#
+#  * Redistributions of source code must retain the above copyright
+#  notice, this list of conditions and the following disclaimer.
+#  * Redistributions in binary form must reproduce the above
+#  copyright notice, this list of conditions and the following disclaimer
+#  in the documentation and/or other materials provided with the
+#  distribution.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+#  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+#  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+#  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+#  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+#  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+#  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+#  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+#  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+#  You can contact the author at :
+#  - xxHash homepage: http://www.xxhash.com
+#  - xxHash source repository : https://github.com/Cyan4973/xxHash
+##
+
+#########################################################################
+# This is XXH64 in "pure" POSIX shell script.
+#
+# Usage:
+#    <data in hex, one byte per line> | XXH64 <seed as an integer>
+#
+# The hash will be printf'd in hex, without a 0x prefix.
+#
+# As you can see, performance is terrible for a few reasons:
+# - Shell uses signed 64-bit integers. Shifting on them performs an
+#   arithmetic shift right, so we need to emulate a logical shift
+#   right.
+#########################################################################
+
+# This is an m4 script. This inlines everything.
+# Note that whitespace is left out in some loops as it slows down parsing.
+
+# For debugging.
+# set -u
+
+## BEGIN: m4 macros
+# Shells use signed arithmetic, so shifting right is wonk
+define(ushr_impl, (       \
+    (($1) >> ($2)) & ($3) \
+))
+define(ushr,                         \
+    ushr_impl($1, $2,                \
+        ~(                           \
+            ((1 << 63) >> ($2)) << 1 \
+        )                            \
+    )                                \
+)
+
+# Shells read files in big endian
+define(swap, (                            \
+    ((   (t = $1) << 56) & (255 << 56)) | \
+    ((    t       << 40) & (255 << 48)) | \
+    ((    t       << 24) & (255 << 40)) | \
+    ((    t       <<  8) & (255 << 32)) | \
+    (ushr(t,          8) & (255 << 24)) | \
+    (ushr(t,         24) & (255 << 16)) | \
+    (ushr(t,         40) & (255 <<  8)) | \
+    (ushr(t,         56) &  255       )   \
+))
+define(swap32, (                          \
+    ((   (t = $1) << 24)  & 0xff000000) | \
+    ((    t       <<  8)  & 0x00ff0000) | \
+    (ushr(t,          8)  & 0x0000ff00) | \
+    (ushr(t,         24)  & 0x000000ff)   \
+))
+
+# calculate the right shift magic beforehand
+define(XXH64_round,
+    : $(( $1 += ($2) * P64_2 ))
+    : $(( $1 = (($1 << 31) | ushr_impl($1, 33, 0x7fffffff)) * P64_1 ))
+)
+define(XXH64_mergeRound,
+    z=0
+    XXH64_round(z, $2)
+    : $(( $1 = ($1 ^ z) * P64_1 + P64_4 ))
+)
+
+define(XXH_rotl64, ( (($1) << ($2)) | ushr($1, 64 - ($2)) ) )
+
+define(XXH64_finalize_chunk,
+    changecom(/*,*/)dnl
+    if arith_if $(( ${#CH_8B_$1} ))
+    then
+        local k1=0
+        XXH64_round(k1, swap(0x${CH_8B_$1}))
+        : $(( h64 ^= k1))
+        : $(( h64 = XXH_rotl64(h64, 27) * P64_1 + P64_4 ))
+    fi
+    changecom()dnl
+)
+## END: m4 macros
+
+## BEGIN: POSIX shell functions
+
+arith_if(){ return $(( ! ${1} ));}
+
+try_read_32B()
+{
+    BUF= CH_8B_1= CH_8B_2= CH_8B_3= CH_8B_4=
+
+    local ch_8B=
+    if read -r ch_8B && arith_if $(( ${#ch_8B} == 16 ))
+    then
+        CH_8B_1="${ch_8B}"
+        ch_8B=
+        if read -r ch_8B && arith_if $(( ${#ch_8B} == 16 ))
+        then
+            CH_8B_2="${ch_8B}"
+            ch_8B=
+            if read -r ch_8B && arith_if $(( ${#ch_8B} == 16 ))
+            then
+                CH_8B_3="${ch_8B}"
+                ch_8B=
+                if read -r ch_8B && arith_if $(( ${#ch_8B} == 16 ))
+                then
+                    CH_8B_4="${ch_8B}"
+                    return 0
+                fi
+            fi
+        fi
+    fi
+
+    BUF="${ch_8B}"
+
+    return 1
+}
+
+## END: POSIX shell functions
+
+## BEGIN: Global variables
+
+# BUF holds the end of a file which didn't fit into 8B chunk
+BUF=
+# the main hashing loop operates on four 64-bit integers, these four variables holds data for it
+CH_8B_1= CH_8B_2= CH_8B_3= CH_8B_4=
+
+## END: Global variables
+
+## BEGIN: Global constants
+
+# Primes.
+# Some shells (like dash) check for overflow and error out, so these constants have to be provided as signed integers.
+: $(( P64_1 = -7046029288634856825 ))  # 0x9E3779B185EBCA87
+: $(( P64_2 = -4417276706812531889 ))  # 0xC2B2AE3D27D4EB4F
+: $(( P64_3 =  1609587929392839161 ))  # 0x165667B19E3779F9
+: $(( P64_4 = -8796714831421723037 ))  # 0x85EBCA77C2B2AE63
+: $(( P64_5 =  2870177450012600261 ))  # 0x27D4EB2F165667C5
+: $(( P64_1_plus_2 = P64_1 + P64_2 ))
+readonly P64_1 P64_2 P64_3 P64_4 P64_5 P64_1_plus_2
+
+## END: Global constants
+
+# uint64_t XXH64(seed = 0)
+XXH64()
+{
+    # Switching to C slightly improves performance
+    local LC_ALL="C"
+
+    if arith_if $(( $# > 1 ))
+    then
+        return 1
+    elif arith_if $(( $# == 1 ))
+    then
+        seed="${1}"
+    else
+        local seed=0
+    fi
+
+    local t=0  dnl used in swap() macros as temp variable
+    local z=0  dnl used in XXH64_mergeRound() macro as a variable always starting as 0
+
+    ## BEGIN: XXH64_reset
+    local v1 v2 v3 v4
+    : $(( v1 = seed + P64_1_plus_2 ))
+    : $(( v2 = seed + P64_2 ))
+    : $(( v3 = seed ))
+    : $(( v4 = seed - P64_1 ))
+    local total_len=0  # in bytes
+    ## END: XXH64_reset
+
+    ## BEGIN: XXH64_update
+    while try_read_32B
+    do
+        XXH64_round(v1, swap(0x${CH_8B_1}))
+        XXH64_round(v2, swap(0x${CH_8B_2}))
+        XXH64_round(v3, swap(0x${CH_8B_3}))
+        XXH64_round(v4, swap(0x${CH_8B_4}))
+        : $(( total_len += 32 ))
+    done
+    : $(( total_len += (${#CH_8B_1} + ${#CH_8B_2} + ${#CH_8B_3} + ${#BUF}) / 2 ))
+    ## END: XXH64_update
+    local h64  # contains final hash
+
+    ## BEGIN: XXH64_digest
+    if arith_if $(( total_len >= 32 ))
+    then
+        : $(( h64 = XXH_rotl64(v1, 1) + XXH_rotl64(v2, 7) + XXH_rotl64(v3, 12) + XXH_rotl64(v4, 18) ))
+        XXH64_mergeRound(h64, v1)
+        XXH64_mergeRound(h64, v2)
+        XXH64_mergeRound(h64, v3)
+        XXH64_mergeRound(h64, v4)
+    else
+        : $(( h64 = v3 + P64_5 ))
+    fi
+    : $(( h64 += total_len ))
+    ## END: XXH64_digest
+
+    ## BEGIN: XXH64_finalize
+    XXH64_finalize_chunk(1)
+    XXH64_finalize_chunk(2)
+    XXH64_finalize_chunk(3)
+
+    if arith_if $(( ${#BUF} >= 8 ))
+    then
+        local ch_4B_1="$(                \
+            printf -- "%c%c%c%c%c%c%c%c" \
+                "${BUF}"                 \
+                "${BUF#?}"               \
+                "${BUF#??}"              \
+                "${BUF#???}"             \
+                "${BUF#????}"            \
+                "${BUF#?????}"           \
+                "${BUF#??????}"          \
+                "${BUF#???????}"         \
+        )"
+        : $(( h64 ^= swap32(0x00000000${ch_4B_1}) * P64_1 ))
+        : $(( h64 = XXH_rotl64(h64, 23) * P64_2 + P64_3 ))
+        BUF="${BUF#????????}"  # strip first 8 chars
+    fi
+
+    while arith_if $(( ${#BUF} > 0 ))
+    do
+        local ch_1B_1="$(     \
+            printf -- "%c%c"  \
+                "${BUF}"      \
+                "${BUF#?}"    \
+        )"
+        : $(( h64 ^= 0x${ch_1B_1} * P64_5 ))
+        : $(( h64 = XXH_rotl64(h64, 11) * P64_1 ))
+        BUF="${BUF#??}"  # strip first 2 chars
+    done
+    ## END: XXH64_finalize
+
+    ## BEGIN: XXH64_avalanche
+    : $(( h64 = (h64 ^ ushr(h64, 33)) * P64_2 ))
+    : $(( h64 = (h64 ^ ushr(h64, 29)) * P64_3 ))
+    : $(( h64 =  h64 ^ ushr(h64, 32) ))
+    ## END: XXH64_avalanche
+
+    printf -- "%016x\n" "${h64}"
+}

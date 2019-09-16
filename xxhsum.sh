@@ -1,23 +1,39 @@
-#!/bin/bash
+#!/bin/sh
 
-set -euo pipefail
-algorithm=XXH64
-if [ $# -gt 1 ] && [ "$1" = "-H0" ]; then
-    algorithm=XXH32
-    shift
-elif [ $# -gt 1 ] && [ "$1" = "-H1" ]; then
-    algorithm=XXH64
-    shift
+set -u  # nounset
+set -e  # errexit
+set -f  # noglob
+set -C  # noclobber
+
+if expr "${#}" "<" "1" >/dev/null
+then
+	>&2 printf "Error: no file(s) specified\n"
+	exit 1
 fi
 
 # get the hashes
-. "$(dirname $0)/xxhash.sh"
+. "$(dirname "${0}")/xxhashi.sh"
 
-if [ $# -eq 0 ]; then
-    set -- "$(dirname $0)/xxhash.sh"
-fi
+exit_status=0
 
-for file in $@; do
-    DATA=$(hexdump -e '/1 "%02X"' -v -- "$file")
-    echo "$($algorithm "$DATA" 0)   $file"
+for file in "${@}"
+do
+	if ! test -f "${file}"
+	then
+		>&2 printf "Error: not a file - '${file}'\n"
+		exit_status=1
+		continue
+	fi
+	if ! test -r "${file}"
+	then
+		>&2 printf "Error: file is not readable - '${file}'\n"
+		exit_status=1
+		continue
+	fi
+
+	hash="$(hexdump --no-squeezing --format '8/1 "%02X""\n"' -- "${file}" | XXH64)"
+
+	printf "%s  %s\n" "${hash}" "${file}"
 done
+
+exit "${exit_status}"
