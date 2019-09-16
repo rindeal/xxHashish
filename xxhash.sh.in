@@ -1,5 +1,23 @@
-#!/bin/bash
-#########################################################################
+#!/bin/sh
+##
+# SPDX-FileCopyrightText: Copyright (C)  2019  Jan Chren (rindeal)
+#
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 3 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+##
+# based upon xxbash, which is:
+##
 #  xxHash - Fast Hash algorithm
 #  Copyright (C) 2012-2016, Yann Collet
 #  Copyright (C) 2019, easyaspi314
@@ -32,59 +50,27 @@
 #  You can contact the author at :
 #  - xxHash homepage: http://www.xxhash.com
 #  - xxHash source repository : https://github.com/Cyan4973/xxHash
-#########################################################################
+##
 
 #########################################################################
-# This is XXH32 and XXH64 in pure Bash.
-#
-# This code is a joke. Don't actually use this. It is incredibly slow and
-# you are much better using literally any other implementation.
-#
-# If you actually use this for production code, you are a monster and do
-# not deserve access to a computer ever again.
+# This is XXH32 and XXH64 in "pure" POSIX shell script.
 #
 # Usage:
-#    XXH32 "data in hex with no spaces or 0x" "seed"
-#    XXH64 "data in hex with no spaces or 0x" "seed"
+#    <data in hex, one byte per line> | XXH32 <seed as an integer>
+#    <data in hex, one byte per line> | XXH64 <seed as an integer>
 #
 # The hash will be printf'd in hex, without a 0x prefix.
 #
-# Performance:
-#
-# Default implementation:
-# $ time xxh64sum xxhash.sh >/dev/null
-# real    0m0.012s
-# user    0m0.003s
-# sys     0m0.004s
-# $ time xxh32sum xxhash.sh >/dev/null
-# real    0m0.007s
-# user    0m0.002s
-# sys     0m0.003s
-#
-# This implementation:
-# $ . xxhash.sh
-# $ XXHASH_SH=$(hexdump -e '/1 "%02X"' -v "xxhash.sh")
-# $ time XXH64 "$XXHASH_SH" "0" >/dev/null
-# real    0m16.672s
-# user    0m16.632s
-# sys     0m0.036s
-# $ time XXH32 "$XXHASH_SH" "0" >/dev/null
-# real    0m32.185s
-# user    0m32.099s
-# sys     0m0.080s
-#
 # As you can see, performance is terrible for a few reasons:
-# - Bash uses signed 64-bit integers. Shifting on them performs an
+# - Shell uses signed 64-bit integers. Shifting on them performs an
 #   arithmetic shift right, so we need to emulate a logical shift
 #   right.
 # - XXH32 is slow because all 32-bit arithmetic needs to be emulated with
 #   masks. Hopefully some of these masks can be removed someday.
-# - It is arithmetic in a Bash script. What do you expect?
-# - Maybe we should use functions, idk.
 #########################################################################
 
 # This is an m4 script. This inlines everything.
-# Note that whitespace is left out in some loops as it slows down bash.
+# Note that whitespace is left out in some loops as it slows down parsing.
 
 # For debugging.
 # set -u
@@ -124,10 +110,6 @@ chunk8_1=
 chunk8_2=
 chunk8_3=
 chunk8_4=
-chunk4_1=
-chunk1_1=
-chunk1_2=
-chunk1_3=
 
 rethrow() { return $((!${1})); }
 
@@ -175,75 +157,6 @@ try_read_32B_in_4_chunks() {
     done
     return 1
 }
-
-# try_read_8B() {
-#     while read -r byte
-#     do
-#         buffer="${buffer}${byte}"
-#         if rethrow $((${#buffer}==16))
-#         then
-#             chunk8="${buffer}"
-#             buffer=
-#             return 0
-#         fi
-#     done
-#     return 1
-# }
-#
-# try_read_4B() {
-#     while read -r byte
-#     do
-#         buffer="${buffer}${byte}"
-#         if rethrow $((${#buffer}==8))
-#         then
-#             chunk4="${buffer}"
-#             buffer=
-#             return 0
-#         fi
-#     done
-#     return 1
-# }
-#
-# try_read_1B() {
-#     while read -r byte
-#     do
-#         buffer="${buffer}${byte}"
-#         if rethrow $((${#buffer}==2))
-#         then
-#             chunk1="${buffer}"
-#             buffer=
-#             return 0
-#         fi
-#     done
-#     return 1
-# }
-#
-# try_read_chunked() {
-#     local len=$1 n=$2
-#     local remaining=$((len*n))
-#
-#     while rethrow ${remaining} && read -r byte
-#     do
-#
-#         buffer="${buffer}${byte}"
-#         : $((remaining-=1))
-#     done
-#
-#     return ${remaining}
-# }
-#
-# try_read() {
-#     buffer=
-#     local c=$1
-#     while rethrow ${c} && read -r byte
-#     do
-#         buffer="${buffer}${byte}"
-#         : $((c-=1))
-#     done
-#
-#     return ${c}
-# }
-
 
 ## Global constants
 PRIME64_1=-7046029288634856825 # 0x9E3779B185EBCA87
