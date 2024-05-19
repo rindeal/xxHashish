@@ -2,6 +2,7 @@ xxhashi.sh: xxhashi.sh.in
 	m4 $< > $@
 # un-comment the following line to prevent minifying the script
 # no-minify:
+#       shfmt -mn $@
 #	flatten multiline statements
 	perl -p -e 's/\s*\\\n/ /' -i -- $@
 #	remove comments
